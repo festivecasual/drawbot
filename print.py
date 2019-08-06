@@ -1,5 +1,6 @@
 import time
-from math import sqrt, floor
+from math import sqrt
+import re
 
 import RPi.GPIO as GPIO
 import pigpio
@@ -43,19 +44,26 @@ def move_to(x, y, left, right):
     tgt_left = sqrt(x**2 + y**2)
     tgt_right = sqrt((L - x)**2 + y**2)
 
-    if tgt_left > left:
+    if tgt_left >= left:
         GPIO.output(5, GPIO.LOW)
+        left_direction = 1
     else:
         GPIO.output(5, GPIO.HIGH)
+        left_direction = -1
 
-    if tgt_right > right:
+    if tgt_right >= right:
         GPIO.output(23, GPIO.HIGH)
+        right_direction = 1
     else:
         GPIO.output(23, GPIO.LOW)
+        right_direction = -1
 
     left_steps = int(abs(tgt_left - left) / STEP)
     right_steps = int(abs(tgt_right - right) / STEP)
-    slope = right_steps / left_steps
+    slope = right_steps / left_steps if left_steps > 0 else 0
+
+    act_left = left + left_direction * left_steps * STEP
+    act_right = right + right_direction * right_steps * STEP
 
     # Pulse each left_step one at a time
     # Pulse 1+ right_steps when the slope of the movement merits it
@@ -75,7 +83,7 @@ def move_to(x, y, left, right):
     # case of left_steps = 0
     pulse(24, right_steps)
 
-    return (tgt_left, tgt_right)
+    return (act_left, act_right)
 
 
 # Init Limit Switches
@@ -88,22 +96,18 @@ GPIO.setup(17, GPIO.IN, pull_up_down=GPIO.PUD_UP)  # Right Limit
 
 pi = pigpio.pi()
 
-PEN_DOWN = 60000
-PEN_UP = 110000
+PEN_DOWN = 20000
+PEN_UP = 80000
 
-def pen_up():
-    global pen
-    pen = PEN_UP
-    pi.hardware_PWM(18, 50, pen)
+PEN_EXTENT = 0.5
+
+def pen_up(extent=1.0):
+    pi.hardware_PWM(18, 50, int(PEN_DOWN + (PEN_UP - PEN_DOWN)*extent))
+    time.sleep(0.5)
 
 def pen_down():
-    global pen
-    while pen > PEN_DOWN:
-        pen -= 100
-        pi.hardware_PWM(18, 50, pen)
-        time.sleep(0.01 / (PEN_UP / pen) ** 1.5)
-
-pen = PEN_UP
+    pi.hardware_PWM(18, 50, PEN_DOWN)
+    time.sleep(0.5)
 
 
 # Centering Routine
@@ -135,25 +139,49 @@ def center():
     origin_y = sqrt(left**2 - origin_x**2)
     return left, right, origin_x, origin_y
 
-
 # Startup
 
-pen_up()
+pen_up(PEN_EXTENT)
+drawing = False
+
 left, right, origin_x, origin_y = center()
 
+# Interpret G-Code
 
-# Test drawing
-
-pen_down()
-
-left, right = move_to(origin_x + 0, origin_y + 50, left, right)
-left, right = move_to(origin_x + 50, origin_y + 50, left, right)
-left, right = move_to(origin_x + 50, origin_y + 0, left, right)
-left, right = move_to(origin_x + 0, origin_y + 0, left, right)
-
-pen_up()
+with open('gcode.gcode', 'r') as src:
+    for l in [line.strip() for line in src.readlines()]:
+        if not l.strip() or l.startswith(';'):
+            continue
+        elif l.startswith('G21') or l.startswith('G90') or l.startswith('M5'):
+            continue
+        elif l.startswith('G0'):   # Fast move (pen up)
+            m = re.search(r'G0 X(?P<x>-?\d+(\.\d*)?) Y(?P<y>-?\d+(\.\d*)?)', l)
+            if not m:
+                print('Misunderstood G0:', l)
+                continue
+            if drawing:
+                pen_up(PEN_EXTENT)
+                drawing = False
+            left, right = move_to(origin_x + float(m.group('x')), origin_y + float(m.group('y')), left, right)
+        elif l.startswith('G1'):   # Draw (pen down)
+            m = re.search(r'G1 X(?P<x>-?\d+(\.\d*)?) Y(?P<y>-?\d+(\.\d*)?).*', l)
+            if not m:
+                print('Misunderstood G1:', l)
+                continue
+            if not drawing:
+                pen_down()
+                drawing = True
+            left, right = move_to(origin_x + float(m.group('x')), origin_y + float(m.group('y')), left, right)
+        else:
+            print('Unhandled G-Code:', l) 
 
 
 # Finalization
+
+pen_up(PEN_EXTENT)
+drawing = False
+
+move_to(origin_x - 100, origin_y - 100, left, right)
+
 
 GPIO.cleanup()
