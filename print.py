@@ -27,18 +27,18 @@ GPIO.output(23, GPIO.HIGH)  # Set right to outfeed
 def pulse(channel, times=1):
     while times:
         GPIO.output(channel, GPIO.LOW)
-        time.sleep(0.001)
+        time.sleep(PAUSE)
         GPIO.output(channel, GPIO.HIGH)
         times -= 1
 
 
 # Movement Control
 
-MAX_LEFT = 559    # Feedout of left belt to end stop (mm)
-MAX_RIGHT = 538   # Feedout of right belt to end stop (mm)
-L = 523           # Horizontal pitch between steppers (mm)
-# STEP = 49 / 500   # Step size (mm)
+MAX_LEFT = 559              # Feedout of left belt to end stop (mm)
+MAX_RIGHT = 538             # Feedout of right belt to end stop (mm)
+L = 523                     # Horizontal pitch between steppers (mm)
 STEP = 12 * 3.14159 / 400   # Step size (mm)
+PAUSE = 0.005               # Time to wait between movements (s)
 
 def move_to(x, y, left, right):
     tgt_left = sqrt(x**2 + y**2)
@@ -162,7 +162,7 @@ with open('gcode.gcode', 'r') as src:
             if drawing:
                 pen_up(PEN_EXTENT)
                 drawing = False
-            left, right = move_to(origin_x + float(m.group('x')), origin_y + float(m.group('y')), left, right)
+            left, right = move_to(origin_x + float(m.group('x')), origin_y + -1 * float(m.group('y')), left, right)
         elif l.startswith('G1'):   # Draw (pen down)
             m = re.search(r'G1 X(?P<x>-?\d+(\.\d*)?) Y(?P<y>-?\d+(\.\d*)?).*', l)
             if not m:
@@ -171,7 +171,7 @@ with open('gcode.gcode', 'r') as src:
             if not drawing:
                 pen_down()
                 drawing = True
-            left, right = move_to(origin_x + float(m.group('x')), origin_y + float(m.group('y')), left, right)
+            left, right = move_to(origin_x + float(m.group('x')), origin_y + -1 * float(m.group('y')), left, right)
         else:
             print('Unhandled G-Code:', l) 
 
@@ -181,7 +181,7 @@ with open('gcode.gcode', 'r') as src:
 pen_up(PEN_EXTENT)
 drawing = False
 
-move_to(origin_x - 100, origin_y - 100, left, right)
+move_to(origin_x, origin_y, left, right)
 
 
 GPIO.cleanup()
