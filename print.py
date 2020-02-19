@@ -6,23 +6,31 @@ import RPi.GPIO as GPIO
 import pigpio
 
 
-GPIO.setmode(GPIO.BCM)
+# GPIO: Stepper control
+RIGHT_PULSE = 20
+RIGHT_DIRECTION = 21
+LEFT_PULSE = 23
+LEFT_DIRECTION = 24
+
+# GPIO: Limit switches
+LEFT_LIMIT = 27
+RIGHT_LIMIT = 17
+
+# GPIO: Servo PWM wire (pen lifter)
+PWM = 18
+
+# Machine parameters
+MAX_LEFT = 559              # Feedout of left belt to end stop (mm)
+MAX_RIGHT = 538             # Feedout of right belt to end stop (mm)
+L = 523                     # Horizontal pitch between steppers (mm)
+STEP = 12 * 3.14159 / 400   # Step size (mm)
+PAUSE = 0.005               # Time to wait between movements (s)
+PEN_EXTENT = 0.5            # Lift ratio for pen raises
+PEN_DOWN = 20000            # Pen down servo position
+PEN_UP = 80000              # Pen up servo position
 
 
-# Init Stepper Control
-
-GPIO.setup(5, GPIO.OUT)     # Left Direction
-GPIO.setup(6, GPIO.OUT)     # Left Pulse
-GPIO.setup(23, GPIO.OUT)    # Right Direction
-GPIO.setup(24, GPIO.OUT)    # Right Pulse
-
-GPIO.output(6, GPIO.HIGH)   # Init left pulse
-GPIO.output(24, GPIO.HIGH)  # Init right pulse
-GPIO.output(5, GPIO.LOW)    # Set left to outfeed
-GPIO.output(23, GPIO.HIGH)  # Set right to outfeed
-
-
-# Stepper Pulse
+# Stepper actions
 
 def pulse(channel, times=1):
     while times:
@@ -31,31 +39,22 @@ def pulse(channel, times=1):
         GPIO.output(channel, GPIO.HIGH)
         times -= 1
 
-
-# Movement Control
-
-MAX_LEFT = 559              # Feedout of left belt to end stop (mm)
-MAX_RIGHT = 538             # Feedout of right belt to end stop (mm)
-L = 523                     # Horizontal pitch between steppers (mm)
-STEP = 12 * 3.14159 / 400   # Step size (mm)
-PAUSE = 0.005               # Time to wait between movements (s)
-
 def move_to(x, y, left, right):
     tgt_left = sqrt(x**2 + y**2)
     tgt_right = sqrt((L - x)**2 + y**2)
 
     if tgt_left >= left:
-        GPIO.output(5, GPIO.LOW)
+        GPIO.output(LEFT_DIRECTION, GPIO.LOW)
         left_direction = 1
     else:
-        GPIO.output(5, GPIO.HIGH)
+        GPIO.output(LEFT_DIRECTION, GPIO.HIGH)
         left_direction = -1
 
     if tgt_right >= right:
-        GPIO.output(23, GPIO.HIGH)
+        GPIO.output(RIGHT_DIRECTION, GPIO.HIGH)
         right_direction = 1
     else:
-        GPIO.output(23, GPIO.LOW)
+        GPIO.output(RIGHT_DIRECTION, GPIO.LOW)
         right_direction = -1
 
     left_steps = int(abs(tgt_left - left) / STEP)
@@ -69,69 +68,56 @@ def move_to(x, y, left, right):
     # Pulse 1+ right_steps when the slope of the movement merits it
     right_counter = 0
     for i in range(1, left_steps + 1):
-        pulse(6)
+        pulse(LEFT_PULSE)
         left_steps -= 1
 
         right_counter += slope
         if int(right_counter):
-            pulse(24, int(right_counter))
+            pulse(RIGHT_PULSE, int(right_counter))
             right_steps -= int(right_counter)
 
             right_counter = right_counter % 1
 
     # Pulse any remaining right_steps from rounding or the special
     # case of left_steps = 0
-    pulse(24, right_steps)
+    pulse(RIGHT_PULSE, right_steps)
 
     return (act_left, act_right)
 
 
-# Init Limit Switches
+# Servo actions
 
-GPIO.setup(27, GPIO.IN, pull_up_down=GPIO.PUD_UP)  # Left Limit
-GPIO.setup(17, GPIO.IN, pull_up_down=GPIO.PUD_UP)  # Right Limit
-
-
-# Init Servo (Pen Lifter) Control
-
-pi = pigpio.pi()
-
-PEN_DOWN = 20000
-PEN_UP = 80000
-
-PEN_EXTENT = 0.5
-
-def pen_up(extent=1.0):
-    pi.hardware_PWM(18, 50, int(PEN_DOWN + (PEN_UP - PEN_DOWN)*extent))
+def pen_up(extent=PEN_EXTENT):
+    pigpio.pi().hardware_PWM(PWM, 50, int(PEN_DOWN + (PEN_UP - PEN_DOWN)*extent))
     time.sleep(0.5)
 
 def pen_down():
-    pi.hardware_PWM(18, 50, PEN_DOWN)
+    pigpio.pi().hardware_PWM(PWM, 50, PEN_DOWN)
     time.sleep(0.5)
 
 
-# Centering Routine
+# Homing
 
 def center():
     while True:
-        if not GPIO.input(27):
+        if not GPIO.input(LEFT_LIMIT):
             break
-        pulse(6)
+        pulse(LEFT_PULSE)
 
-    GPIO.output(5, GPIO.HIGH)
-    pulse(6, 2000)
-    GPIO.output(5, GPIO.LOW)
+    GPIO.output(LEFT_DIRECTION, GPIO.HIGH)
+    pulse(LEFT_PULSE, 2000)
+    GPIO.output(LEFT_DIRECTION, GPIO.LOW)
 
     left = MAX_LEFT - 2000 * STEP
 
     while True:
-        if not GPIO.input(17):
+        if not GPIO.input(RIGHT_LIMIT):
             break
-        pulse(24)
+        pulse(RIGHT_PULSE)
 
-    GPIO.output(23, GPIO.LOW)
-    pulse(24, 2000)
-    GPIO.output(23, GPIO.HIGH)
+    GPIO.output(RIGHT_DIRECTION, GPIO.LOW)
+    pulse(RIGHT_PULSE, 2000)
+    GPIO.output(RIGHT_DIRECTION, GPIO.HIGH)
 
     right = MAX_RIGHT - 2000 * STEP
 
@@ -139,49 +125,80 @@ def center():
     origin_y = sqrt(left**2 - origin_x**2)
     return left, right, origin_x, origin_y
 
-# Startup
 
-pen_up(PEN_EXTENT)
-drawing = False
+# Queue consumption routine
 
-left, right, origin_x, origin_y = center()
+def run_printer(q, completion):
+    completion = -1   # -1 indicates no active job, otherwise a percentage
 
-# Interpret G-Code
+    GPIO.setmode(GPIO.BCM)
 
-with open('gcode.gcode', 'r') as src:
-    for l in [line.strip() for line in src.readlines()]:
-        if not l.strip() or l.startswith(';'):
-            continue
-        elif l.startswith('G21') or l.startswith('G90') or l.startswith('M5'):
-            continue
-        elif l.startswith('G0'):   # Fast move (pen up)
-            m = re.search(r'G0 X(?P<x>-?\d+(\.\d*)?) Y(?P<y>-?\d+(\.\d*)?)', l)
-            if not m:
-                print('Misunderstood G0:', l)
+    GPIO.setup(RIGHT_PULSE, GPIO.OUT)
+    GPIO.setup(RIGHT_DIRECTION, GPIO.OUT)
+    GPIO.setup(LEFT_PULSE, GPIO.OUT)
+    GPIO.setup(LEFT_DIRECTION, GPIO.OUT)
+
+    GPIO.output(RIGHT_PULSE, GPIO.HIGH)
+    GPIO.output(RIGHT_DIRECTION, GPIO.HIGH)
+    GPIO.output(LEFT_PULSE, GPIO.HIGH)
+    GPIO.output(LEFT_DIRECTION, GPIO.LOW)
+
+    GPIO.setup(LEFT_LIMIT, GPIO.IN, pull_up_down=GPIO.PUD_UP)
+    GPIO.setup(RIGHT_LIMIT, GPIO.IN, pull_up_down=GPIO.PUD_UP)
+
+    pen_up()
+    drawing = False
+
+    left = right = origin_x = origin_y = -1
+
+    while True:
+        job = q.get()
+        if job == 'STOP':
+            break
+        lines_max = lines_left = len(job)
+        for l in [line.strip() for line in job]:
+            lines_left -= 1
+            completion = 1 - lines_left / lines_max
+
+            if not l or l.startswith(';'):   # Blank line or comment
                 continue
-            if drawing:
-                pen_up(PEN_EXTENT)
-                drawing = False
-            left, right = move_to(origin_x + float(m.group('x')), origin_y + -1 * float(m.group('y')), left, right)
-        elif l.startswith('G1'):   # Draw (pen down)
-            m = re.search(r'G1 X(?P<x>-?\d+(\.\d*)?) Y(?P<y>-?\d+(\.\d*)?).*', l)
-            if not m:
-                print('Misunderstood G1:', l)
-                continue
-            if not drawing:
-                pen_down()
-                drawing = True
-            left, right = move_to(origin_x + float(m.group('x')), origin_y + -1 * float(m.group('y')), left, right)
-        else:
-            print('Unhandled G-Code:', l) 
+            elif l == 'G28':   # Centering routine (required before we can move in the coordinate system)
+                left, right, origin_x, origin_y = center()
+            elif l.startswith('G0 '):   # Fast move (pen up)
+                if drawing:
+                    pen_up()
+                    drawing = False
+                m = re.search(r'G0 X(?P<x>-?\d+(\.\d*)?) Y(?P<y>-?\d+(\.\d*)?)', l)   # Normal X, Y coordinate move
+                if m:
+                    if origin_x < 0:
+                        continue   # Refuse to move in the coordinate system if we have not centered
+                    left, right = move_to(origin_x + float(m.group('x')), origin_y + -1 * float(m.group('y')), left, right)
+                    continue
+                m = re.search(r'G0 L(?P<left>-?\d+) R(?P<right>-?\d+)', l)   # Manual L, R step move
+                if m:
+                    left_shift, right_shift = int(m.group('left')), int(m.group('right'))
+                    if left_shift > 0:
+                        GPIO.output(LEFT_DIRECTION, GPIO.LOW)
+                    else:
+                        GPIO.output(LEFT_DIRECTION, GPIO.HIGH)
+                    pulse(LEFT_PULSE, left_shift)
+                    if right_shift > 0:
+                        GPIO.output(RIGHT_DIRECTION, GPIO.HIGH)
+                    else:
+                        GPIO.output(RIGHT_DIRECTION, GPIO.LOW)
+                    pulse(RIGHT_PULSE, right_shift)
+                    left = right = origin_x = origin_y = -1   # Manual movements invalidate any calibrated coordinates
 
+            elif l.startswith('G1 '):   # Draw (pen down)
+                if origin_x < 0:
+                    continue   # Refuse to move in the coordinate system if we have not centered
+                if not drawing:
+                    pen_down()
+                    drawing = True
+                m = re.search(r'G1 X(?P<x>-?\d+(\.\d*)?) Y(?P<y>-?\d+(\.\d*)?).*', l)
+                if m:
+                    left, right = move_to(origin_x + float(m.group('x')), origin_y + -1 * float(m.group('y')), left, right)
 
-# Finalization
+        completion = -1
 
-pen_up(PEN_EXTENT)
-drawing = False
-
-move_to(origin_x, origin_y, left, right)
-
-
-GPIO.cleanup()
+    GPIO.cleanup()
