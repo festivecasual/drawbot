@@ -13,8 +13,8 @@ LEFT_PULSE = 23
 LEFT_DIRECTION = 24
 
 # GPIO: Limit switches
-LEFT_LIMIT = 27
-RIGHT_LIMIT = 17
+LEFT_LIMIT = 17
+RIGHT_LIMIT = 27
 
 # GPIO: Servo PWM wire (pen lifter)
 PWM = 18
@@ -33,7 +33,7 @@ PEN_UP = 80000              # Pen up servo position
 # Stepper actions
 
 def pulse(channel, times=1):
-    while times:
+    while times > 0:
         GPIO.output(channel, GPIO.LOW)
         time.sleep(PAUSE)
         GPIO.output(channel, GPIO.HIGH)
@@ -99,6 +99,7 @@ def pen_down():
 # Homing
 
 def center():
+    GPIO.output(LEFT_DIRECTION, GPIO.LOW)
     while True:
         if not GPIO.input(LEFT_LIMIT):
             break
@@ -106,10 +107,10 @@ def center():
 
     GPIO.output(LEFT_DIRECTION, GPIO.HIGH)
     pulse(LEFT_PULSE, 2000)
-    GPIO.output(LEFT_DIRECTION, GPIO.LOW)
 
     left = MAX_LEFT - 2000 * STEP
 
+    GPIO.output(RIGHT_DIRECTION, GPIO.HIGH)
     while True:
         if not GPIO.input(RIGHT_LIMIT):
             break
@@ -117,7 +118,6 @@ def center():
 
     GPIO.output(RIGHT_DIRECTION, GPIO.LOW)
     pulse(RIGHT_PULSE, 2000)
-    GPIO.output(RIGHT_DIRECTION, GPIO.HIGH)
 
     right = MAX_RIGHT - 2000 * STEP
 
@@ -129,9 +129,10 @@ def center():
 # Queue consumption routine
 
 def run_printer(q, completion):
-    completion = -1   # -1 indicates no active job, otherwise a percentage
+    completion.value = -1   # -1 indicates no active job, otherwise a percentage
 
     GPIO.setmode(GPIO.BCM)
+    GPIO.setwarnings(False)
 
     GPIO.setup(RIGHT_PULSE, GPIO.OUT)
     GPIO.setup(RIGHT_DIRECTION, GPIO.OUT)
@@ -158,7 +159,7 @@ def run_printer(q, completion):
         lines_max = lines_left = len(job)
         for l in [line.strip() for line in job]:
             lines_left -= 1
-            completion = 1 - lines_left / lines_max
+            completion.value = 1 - lines_left / lines_max
 
             if not l or l.startswith(';'):   # Blank line or comment
                 continue
@@ -181,14 +182,13 @@ def run_printer(q, completion):
                         GPIO.output(LEFT_DIRECTION, GPIO.LOW)
                     else:
                         GPIO.output(LEFT_DIRECTION, GPIO.HIGH)
-                    pulse(LEFT_PULSE, left_shift)
+                    pulse(LEFT_PULSE, abs(left_shift))
                     if right_shift > 0:
                         GPIO.output(RIGHT_DIRECTION, GPIO.HIGH)
                     else:
                         GPIO.output(RIGHT_DIRECTION, GPIO.LOW)
-                    pulse(RIGHT_PULSE, right_shift)
+                    pulse(RIGHT_PULSE, abs(right_shift))
                     left = right = origin_x = origin_y = -1   # Manual movements invalidate any calibrated coordinates
-
             elif l.startswith('G1 '):   # Draw (pen down)
                 if origin_x < 0:
                     continue   # Refuse to move in the coordinate system if we have not centered
@@ -199,6 +199,6 @@ def run_printer(q, completion):
                 if m:
                     left, right = move_to(origin_x + float(m.group('x')), origin_y + -1 * float(m.group('y')), left, right)
 
-        completion = -1
+        completion.value = -1
 
     GPIO.cleanup()
