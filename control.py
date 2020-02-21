@@ -99,30 +99,33 @@ def pen_down():
 # Homing
 
 def center():
+    # Outfeed the left until limit is tripped
     GPIO.output(LEFT_DIRECTION, GPIO.LOW)
-    while True:
-        if not GPIO.input(LEFT_LIMIT):
-            break
+    while GPIO.input(LEFT_LIMIT):
         pulse(LEFT_PULSE)
 
+    # Infeed the left halfway to origin
     GPIO.output(LEFT_DIRECTION, GPIO.HIGH)
-    pulse(LEFT_PULSE, 1000)
+    pulse(LEFT_PULSE, 400)
 
-    left = MAX_LEFT - 1000 * STEP
-
+    # Outfeed the right until limit is tripped
     GPIO.output(RIGHT_DIRECTION, GPIO.HIGH)
-    while True:
-        if not GPIO.input(RIGHT_LIMIT):
-            break
+    while GPIO.input(RIGHT_LIMIT):
         pulse(RIGHT_PULSE)
 
+    # Infeed the right to origin
     GPIO.output(RIGHT_DIRECTION, GPIO.LOW)
-    pulse(RIGHT_PULSE, 1000)
+    pulse(RIGHT_PULSE, 800)
 
-    right = MAX_RIGHT - 1000 * STEP
+    # Finish up infeeding the left side
+    pulse(LEFT_PULSE, 400)
+    
+    left = MAX_LEFT - 800 * STEP
+    right = MAX_RIGHT - 800 * STEP
 
     origin_x = (left**2 - right**2 + L**2) / (2 * L)
     origin_y = sqrt(left**2 - origin_x**2)
+
     return left, right, origin_x, origin_y
 
 
