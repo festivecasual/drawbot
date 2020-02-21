@@ -20,10 +20,10 @@ RIGHT_LIMIT = 27
 PWM = 18
 
 # Machine parameters
-MAX_LEFT = 559              # Feedout of left belt to end stop (mm)
-MAX_RIGHT = 538             # Feedout of right belt to end stop (mm)
+MAX_LEFT = 513              # Feedout of left belt to end stop (mm)
+MAX_RIGHT = 516             # Feedout of right belt to end stop (mm)
 L = 523                     # Horizontal pitch between steppers (mm)
-STEP = 12 * 3.14159 / 400   # Step size (mm)
+STEP = 12 * 3.14159 / 200   # Step size (mm)
 PAUSE = 0.005               # Time to wait between movements (s)
 PEN_EXTENT = 0.5            # Lift ratio for pen raises
 PEN_DOWN = 20000            # Pen down servo position
@@ -106,9 +106,9 @@ def center():
         pulse(LEFT_PULSE)
 
     GPIO.output(LEFT_DIRECTION, GPIO.HIGH)
-    pulse(LEFT_PULSE, 2000)
+    pulse(LEFT_PULSE, 1000)
 
-    left = MAX_LEFT - 2000 * STEP
+    left = MAX_LEFT - 1000 * STEP
 
     GPIO.output(RIGHT_DIRECTION, GPIO.HIGH)
     while True:
@@ -117,9 +117,9 @@ def center():
         pulse(RIGHT_PULSE)
 
     GPIO.output(RIGHT_DIRECTION, GPIO.LOW)
-    pulse(RIGHT_PULSE, 2000)
+    pulse(RIGHT_PULSE, 1000)
 
-    right = MAX_RIGHT - 2000 * STEP
+    right = MAX_RIGHT - 1000 * STEP
 
     origin_x = (left**2 - right**2 + L**2) / (2 * L)
     origin_y = sqrt(left**2 - origin_x**2)
