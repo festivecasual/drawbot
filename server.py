@@ -13,9 +13,17 @@ class StatusResource:
 
     def on_get(self, req, resp):
         resp.body = json.dumps({
-            status: 'ready' if completion.value < 0 else 'busy',
-            completion: completion.value,
+            'status': 'ready' if completion.value < 0 else 'busy',
+            'completion': completion.value,
         })
+
+class CommandResource:
+    def __init__(self, q):
+        self.q = q
+
+    def on_post(self, req, resp):
+        data = req.stream.read(req.content_length or 0)
+        self.q.put(json.loads(data))
 
  
 q = Queue()
@@ -26,6 +34,7 @@ printer.start()
 
 app = falcon.API()
 app.add_route('/api/status', StatusResource(completion))
+app.add_route('/api/command', CommandResource(q))
 
 
 if __name__ == '__main__':
