@@ -99,6 +99,8 @@ def pen_down():
 # Homing
 
 def center():
+    pen_up()
+
     # Outfeed the left until limit is tripped
     GPIO.output(LEFT_DIRECTION, GPIO.LOW)
     while GPIO.input(LEFT_LIMIT):
