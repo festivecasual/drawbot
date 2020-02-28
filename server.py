@@ -39,7 +39,7 @@ app.add_route('/api/command', CommandResource(q))
 
 
 if __name__ == '__main__':
-    with make_server('127.0.0.1', 80, app) as httpd:
+    with make_server('127.0.0.1', 8000, app) as httpd:
         httpd.serve_forever()
 
 
