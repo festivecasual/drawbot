@@ -43,6 +43,10 @@ def move_to(x, y, left, right):
     tgt_left = sqrt(x**2 + y**2)
     tgt_right = sqrt((L - x)**2 + y**2)
 
+    # Catch no-op special case
+    if tgt_left == left and tgt_right == right:
+        return (tgt_left, tgt_right)
+
     if tgt_left >= left:
         GPIO.output(LEFT_DIRECTION, GPIO.LOW)
         left_direction = 1
@@ -170,6 +174,7 @@ def run_printer(q, completion):
                 continue
             elif l == 'G28':   # Centering routine (required before we can move in the coordinate system)
                 left, right, origin_x, origin_y = center()
+                drawing = False
             elif l.startswith('G0 '):   # Fast move (pen up)
                 if drawing:
                     pen_up()
