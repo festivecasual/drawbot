@@ -1,4 +1,5 @@
 from multiprocessing import Process, Queue, Value
+from wsgiref.simple_server import make_server
 import readline
 import json
 
@@ -38,6 +39,12 @@ app.add_route('/api/command', CommandResource(q))
 
 
 if __name__ == '__main__':
+    with make_server('127.0.0.1', 80, app) as httpd:
+        httpd.serve_forever()
+
+
+"""
+For reference, command line version of machine server:
     cmd = input('drawbot> ')
     while cmd != 'STOP':
         q.put([cmd])    
@@ -45,4 +52,4 @@ if __name__ == '__main__':
     q.put('STOP')
 
     printer.join()
-
+"""
