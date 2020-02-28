@@ -91,12 +91,14 @@ def move_to(x, y, left, right):
 
 # Servo actions
 
+gpio_connection = pigpio.pi()
+
 def pen_up(extent=PEN_EXTENT):
-    pigpio.pi().hardware_PWM(PWM, 50, int(PEN_DOWN + (PEN_UP - PEN_DOWN)*extent))
+    gpio_connection.hardware_PWM(PWM, 50, int(PEN_DOWN + (PEN_UP - PEN_DOWN)*extent))
     time.sleep(0.5)
 
 def pen_down():
-    pigpio.pi().hardware_PWM(PWM, 50, PEN_DOWN)
+    gpio_connection.hardware_PWM(PWM, 50, PEN_DOWN)
     time.sleep(0.5)
 
 
